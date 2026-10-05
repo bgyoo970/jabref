@@ -5,7 +5,6 @@ import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import javafx.scene.input.ClipboardContent;
 
@@ -72,7 +71,7 @@ public record ClipboardContentGenerator(
         }
     }
 
-    /// Generates a plain text string out of the preview (based on {@link TextBasedPreviewLayout} or {@link org.jabref.logic.preview.BstPreviewLayout})
+    /// Generates a plain text string out of the preview (based on [TextBasedPreviewLayout] or [org.jabref.logic.preview.BstPreviewLayout])
     /// and copies it additionally to the html to the clipboard (WYSIWYG Editors use the HTML, plain text editors the text)
     @VisibleForTesting
     static ClipboardContent processPreview(List<String> citations) {
@@ -91,7 +90,7 @@ public record ClipboardContentGenerator(
     }
 
     /// Inserts each citation into a HTML body and copies it to the clipboard.
-    /// The given preview is based on {@link CitationStylePreviewLayout}.
+    /// The given preview is based on [CitationStylePreviewLayout].
     @VisibleForTesting
     static ClipboardContent processHtml(List<String> citations) {
         String result = "<!DOCTYPE html>" + OS.NEWLINE +
@@ -139,7 +138,7 @@ public record ClipboardContentGenerator(
                                                                        .map(TextBasedPreviewLayout.class::cast)
                                                                        .findFirst();
         CustomizedPreviewStyle storedLayout = previewPreferences.getCustomizedPreviewStyles().isEmpty()
-                                              ? new CustomizedPreviewStyle(UUID.randomUUID().toString(), TextBasedPreviewLayout.NAME, TextBasedPreviewLayout.DEFAULT)
+                                              ? new CustomizedPreviewStyle(TextBasedPreviewLayout.NAME, TextBasedPreviewLayout.DEFAULT)
                                               : previewPreferences.getCustomizedPreviewStyles().getFirst();
         TextBasedPreviewLayout customPreviewLayout = layoutOpt.orElse(TextBasedPreviewLayout.of(storedLayout.name(), storedLayout.text(), layoutFormatterPreferences, abbreviationRepository));
 

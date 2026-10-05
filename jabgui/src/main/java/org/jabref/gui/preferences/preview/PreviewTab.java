@@ -9,7 +9,9 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Tab;
@@ -18,6 +20,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.DragEvent;
 import javafx.scene.input.Dragboard;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.input.TransferMode;
@@ -34,6 +37,7 @@ import org.jabref.gui.actions.StandardActions;
 import org.jabref.gui.icon.IconTheme;
 import org.jabref.gui.preferences.AbstractPreferenceTabView;
 import org.jabref.gui.preview.PreviewViewer;
+import org.jabref.gui.theme.StyleClasses;
 import org.jabref.gui.util.BindingsHelper;
 import org.jabref.gui.util.FileDialogConfiguration;
 import org.jabref.gui.util.ViewModelListCellFactory;
@@ -59,22 +63,20 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
     private ListView<PreviewLayout> cslListView;
     private ListView<PreviewLayout> customizedListView;
     private ListView<PreviewLayout> chosenListView;
-    private TabPane availableTabPane;   // TODO: see if needs to be refactored
+    private TabPane availableTabPane;
     private Tab cslTab;
     private Tab customizedTab;
-    private Tab previousTab;    // used to remember the context of last focused tab
+    private Tab previousTab;
     private Button toRightButton;
     private Button toLeftButton;
     private Button sortUpButton;
     private Button sortDownButton;
-    private Button addCustomStyleButton;
-    private Button removeCustomStyleButton;
     private Label readOnlyLabel;
     private Button resetDefaultButton;
     private Tab previewTab;
     private CodeArea editArea;
     private CustomTextField searchBox;
-    private TextField styleNameField;
+    private TextField addCustomizedStyleNameField;
 
     private final StateManager stateManager;
     private final JournalAbbreviationRepository abbreviationRepository;
@@ -133,26 +135,27 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
         cslTab.setClosable(false);
         previousTab = cslTab;
 
-        addCustomStyleButton = new Button();
-        removeCustomStyleButton = new Button();
+        addCustomizedStyleNameField = new TextField();
+        addCustomizedStyleNameField.setPromptText(Localization.lang("Type new preview style name..."));
+        addCustomizedStyleNameField.setOnAction(_ -> addCustomizedStyleFromField());
 
-        addCustomStyleButton.getStyleClass().add("icon-button");
-        removeCustomStyleButton.getStyleClass().add("icon-button");
+        MenuItem newStyleItem = new MenuItem(Localization.lang("New preview style"));
+        newStyleItem.setOnAction(_ -> addCustomizedStyleFromField());
+        MenuItem addBstStyleItem = new MenuItem(Localization.lang("Add BST file"));
+        addBstStyleItem.setOnAction(_ -> selectBstFile());
 
-        addCustomStyleButton.setGraphic(IconTheme.JabRefIcons.ADD.getGraphicNode());
-        removeCustomStyleButton.setGraphic(IconTheme.JabRefIcons.REMOVE.getGraphicNode());
+        MenuButton addCustomizedStyleMenuButton = new MenuButton();
+        addCustomizedStyleMenuButton.setGraphic(IconTheme.JabRefIcons.ADD_NOBOX.getGraphicNode());
+        addCustomizedStyleMenuButton.getStyleClass().addAll("icon-button", "narrow");
+        addCustomizedStyleMenuButton.setTooltip(new Tooltip(Localization.lang("Add a new preview style")));
+        addCustomizedStyleMenuButton.getItems().addAll(newStyleItem, addBstStyleItem);
 
-        addCustomStyleButton.setPrefWidth(30);
-        removeCustomStyleButton.setPrefWidth(30);
+        HBox addCustomizedStyleRow = new HBox(5, addCustomizedStyleNameField, addCustomizedStyleMenuButton);
+        HBox.setHgrow(addCustomizedStyleNameField, Priority.ALWAYS);
 
-        VBox buttonBox = new VBox(5, addCustomStyleButton, removeCustomStyleButton);
-        buttonBox.setAlignment(Pos.TOP_CENTER);
-
-        HBox customizedPane = new HBox(5);
-        customizedPane.getChildren().addAll(customizedListView, buttonBox);
-        HBox.setHgrow(customizedListView, Priority.ALWAYS);
-
-        customizedTab = new Tab(Localization.lang("Customized"), customizedPane);
+        VBox customizedColumn = new VBox(5, customizedListView, addCustomizedStyleRow);
+        VBox.setVgrow(customizedListView, Priority.ALWAYS);
+        customizedTab = new Tab(Localization.lang("Customized"), customizedColumn);
         customizedTab.setClosable(false);
 
         // [impl->req~entry-preview.tabs~1]
@@ -186,6 +189,7 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
         previewTab.setClosable(false);
 
         editArea = new CodeArea();
+        editArea.getStyleClass().add("padding-0");
         Tab editTab = new Tab(Localization.lang("Edit"), new VirtualizedScrollPane<>(editArea));
         editTab.setClosable(false);
 
@@ -197,22 +201,15 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
         AnchorPane.setBottomAnchor(tabPane, 0.0);
         AnchorPane.setRightAnchor(tabPane, 0.0);
 
-        styleNameField = new TextField();
-        styleNameField.setPromptText(Localization.lang("Style name"));
-        EasyBind.subscribe(viewModel.styleNameProperty(), styleNameField::setText);
-        styleNameField.editableProperty().bind(viewModel.selectedIsEditableProperty());
-        styleNameField.setOnAction(_ -> commitStyleNameEdit()); // Commit on Enter
         readOnlyLabel = new Label(Localization.lang("Read only"));
         resetDefaultButton = new Button();
         resetDefaultButton.setGraphic(IconTheme.JabRefIcons.REFRESH.getGraphicNode());
-        resetDefaultButton.getStyleClass().addAll("icon-button", "narrow");
+        resetDefaultButton.getStyleClass().addAll(StyleClasses.NARROW_ICON_BUTTON);
         resetDefaultButton.setPrefSize(20.0, 20.0);
         resetDefaultButton.setTooltip(new Tooltip(Localization.lang("Reset default preview style")));
         resetDefaultButton.setOnAction(_ -> resetDefaultButtonAction());
         HBox topRight = new HBox(10, readOnlyLabel,
-                resetDefaultButton,
-                new Label(Localization.lang("Name")),
-                styleNameField);
+                resetDefaultButton);
 
         topRight.setAlignment(Pos.CENTER_RIGHT);
         AnchorPane.setTopAnchor(topRight, 2.0);
@@ -239,7 +236,7 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
 
     private Label sectionLabel(String text) {
         Label label = new Label(text);
-        label.getStyleClass().add("sectionHeader");
+        label.getStyleClass().addAll(StyleClasses.SECTION_HEADER);
         return label;
     }
 
@@ -307,7 +304,7 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
         viewModel.availableSelectionModelProperty().setValue(cslListView.getSelectionModel());
         availableTabPane.getSelectionModel()
                         .selectedItemProperty()
-                        .addListener((obs, oldTab, newTab) -> {
+                        .addListener((_, _, newTab) -> {
                             if (newTab == cslTab) {
                                 viewModel.availableSelectionModelProperty().setValue(cslListView.getSelectionModel());
                             } else {
@@ -320,11 +317,7 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
                 .withText(PreviewLayout::getDisplayName)
                 .withContextMenu(this::createContextMenu)
                 .install(cslListView);
-
-        new ViewModelListCellFactory<PreviewLayout>()
-                .withText(PreviewLayout::getDisplayName)
-                .withContextMenu(this::createContextMenu)
-                .install(customizedListView);
+        customizedListView.setCellFactory(this::createCustomizedStyleCell);
 
         cslListView.setOnDragOver(this::dragOver);
         cslListView.setOnDragDetected(this::dragDetectedInAvailable);
@@ -371,17 +364,7 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
                 viewModel.setPreviewLayout(newValue));
 
         // [impl->req~entry-preview.create-custom-style~1]
-        addCustomStyleButton.setOnAction(event -> {
-            viewModel.addCustomizedStyle();
-            customizedListView.refresh();
-        });
-
-        removeCustomStyleButton.setOnAction(event -> {
-            viewModel.removeCustomizedStyle();
-            customizedListView.refresh();
-        });
-
-        removeCustomStyleButton.disableProperty().bind(customizedListView.getSelectionModel().selectedItemProperty().isNull());
+        viewModel.newCustomizedStyleNameProperty().bindBidirectional(addCustomizedStyleNameField.textProperty());
         toRightButton.disableProperty().bind(viewModel.availableSelectionModelProperty().getValue().selectedItemProperty().isNull());
         toLeftButton.disableProperty().bind(viewModel.chosenSelectionModelProperty().getValue().selectedItemProperty().isNull());
         sortUpButton.disableProperty().bind(viewModel.chosenSelectionModelProperty().getValue().selectedItemProperty().isNull());
@@ -483,10 +466,12 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
     private void dragDropped(ListProperty<PreviewLayout> targetList, DragEvent event) {
         boolean success = viewModel.dragDropped(targetList, event.getDragboard());
         event.setDropCompleted(success);
-        // Only switch tabs when dragging OUT of Selected INTO Available
-        // dropping in Selected has no need to refocus the Available tabs.
-        if (success && targetList != viewModel.chosenListProperty()) {
-            focusTabOnLastRoutedLayout();
+        if (success) {
+            if (targetList == viewModel.chosenListProperty()) {
+                focusChosenOnLastRoutedLayout();
+            } else {
+                focusAvailableOnLastRoutedLayout();
+            }
         }
         event.consume();
     }
@@ -494,6 +479,10 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
     private void dragDroppedInChosenCell(PreviewLayout targetLayout, DragEvent event) {
         boolean success = viewModel.dragDroppedInChosenCell(targetLayout, event.getDragboard());
         event.setDropCompleted(success);
+        if (success && !chosenListView.getSelectionModel().isEmpty()) {
+            chosenListView.scrollTo(chosenListView.getSelectionModel().getSelectedIndex());
+            chosenListView.requestFocus();
+        }
         event.consume();
     }
 
@@ -503,11 +492,12 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
         } else {
             viewModel.addToChosen(viewModel.customizedListProperty());
         }
+        focusChosenOnLastRoutedLayout();
     }
 
     public void toLeftButtonAction() {
         viewModel.removeFromChosen();
-        focusTabOnLastRoutedLayout();
+        focusAvailableOnLastRoutedLayout();
     }
 
     public void sortUpButtonAction() {
@@ -522,6 +512,11 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
         viewModel.resetDefaultLayout();
     }
 
+    private void addCustomizedStyleFromField() {
+        viewModel.addCustomizedStyle();
+        customizedListView.refresh();
+    }
+
     private void mouseClickedAvailable(MouseEvent event) {
         if (event.getClickCount() == 2) {
             if (previousTab == cslTab) {
@@ -529,6 +524,7 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
             } else {
                 viewModel.addToChosen(viewModel.customizedListProperty());
             }
+            focusChosenOnLastRoutedLayout();
             event.consume();
         }
     }
@@ -536,7 +532,7 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
     private void mouseClickedChosen(MouseEvent event) {
         if (event.getClickCount() == 2) {
             viewModel.removeFromChosen();
-            focusTabOnLastRoutedLayout();
+            focusAvailableOnLastRoutedLayout();
             event.consume();
         }
     }
@@ -552,14 +548,6 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
         return null;
     }
 
-    private void focusTabOnLastRoutedLayout() {
-        PreviewLayout lastLayout = viewModel.lastRoutedLayoutProperty().getValue();
-        if (lastLayout != null) {
-            availableTabPane.getSelectionModel()
-                            .select((lastLayout instanceof TextBasedPreviewLayout) ? customizedTab : cslTab);
-        }
-    }
-
     private void focusRightButtonBinding() {
         toRightButton.disableProperty().unbind();
         toRightButton.disableProperty().bind(viewModel.availableSelectionModelProperty()
@@ -568,9 +556,125 @@ public class PreviewTab extends AbstractPreferenceTabView<PreviewTabViewModel> {
                                                       .isNull());
     }
 
-    private void commitStyleNameEdit() {
-        viewModel.renameSelectedStyle(styleNameField.getText());
-        customizedListView.refresh();   // refresh view to display rename in 'customized'
-        chosenListView.refresh();       // refresh view to display rename in 'selected'
+    private void focusAvailableOnLastRoutedLayout() {
+        PreviewLayout lastLayout = viewModel.lastRoutedLayoutProperty().getValue();
+        if (lastLayout != null) {
+            availableTabPane.getSelectionModel()
+                            .select((lastLayout instanceof TextBasedPreviewLayout) ? customizedTab : cslTab);
+
+            viewModel.availableSelectionModelProperty().getValue().clearSelection();
+            viewModel.availableSelectionModelProperty().getValue().select(lastLayout);
+
+            ListView<PreviewLayout> targetListView = (lastLayout instanceof TextBasedPreviewLayout) ? customizedListView : cslListView;
+            targetListView.scrollTo(lastLayout);
+            targetListView.requestFocus();
+        }
+    }
+
+    private void focusChosenOnLastRoutedLayout() {
+        PreviewLayout lastLayout = viewModel.lastRoutedLayoutProperty().getValue();
+        if (lastLayout != null) {
+            viewModel.chosenSelectionModelProperty().getValue().clearSelection();
+            viewModel.chosenSelectionModelProperty().getValue().select(lastLayout);
+            chosenListView.scrollTo(lastLayout);
+            chosenListView.requestFocus();
+        }
+    }
+
+    private ListCell<PreviewLayout> createCustomizedStyleCell(ListView<PreviewLayout> listView) {
+        return new ListCell<>() {
+            private final Label nameLabel = new Label();
+            private final TextField editField = new TextField();
+            private final Button editButton = rowActionButton(IconTheme.JabRefIcons.EDIT, Localization.lang("Rename"));
+
+            private final Button deleteButton = rowActionButton(IconTheme.JabRefIcons.DELETE_ENTRY, Localization.lang("Remove"));
+            private final HBox actions = new HBox(2, editButton, deleteButton);
+            private final HBox content;
+            private boolean renaming = false;
+
+            {
+                Region spacer = new Region();
+                HBox.setHgrow(spacer, Priority.ALWAYS);
+                content = new HBox(5, nameLabel, spacer, actions);
+
+                actions.visibleProperty().bind(hoverProperty().and(emptyProperty().not()));
+                actions.managedProperty().bind(actions.visibleProperty());
+
+                editButton.setOnAction(_ -> startRename());
+                deleteButton.setOnAction(_ -> {
+                    if (getItem() != null) {
+                        viewModel.removeCustomizedStyle(getItem());
+                    }
+                });
+
+                editField.setOnAction(_ -> commitRename());
+                editField.setOnKeyPressed(event -> {
+                    if (event.getCode() == KeyCode.ESCAPE) {
+                        cancelRename();
+                    }
+                });
+                editField.focusedProperty().addListener((_, _, focused) -> {
+                    if (!focused && renaming) {
+                        commitRename();
+                    }
+                });
+            }
+
+            private void startRename() {
+                if (getItem() == null) {
+                    return;
+                }
+                renaming = true;
+                editField.setText(getItem().getDisplayName());
+                content.getChildren().set(0, editField);
+                editField.requestFocus();
+                editField.selectAll();
+            }
+
+            private void cancelRename() {
+                renaming = false;
+                content.getChildren().set(0, nameLabel);
+            }
+
+            private void commitRename() {
+                if (!renaming) {
+                    return;
+                }
+                PreviewLayout item = getItem();
+                String newName = editField.getText();
+                cancelRename();
+                if (item != null) {
+                    viewModel.availableSelectionModelProperty().getValue().select(item);
+                    viewModel.renameSelectedStyle(newName);
+                    listView.refresh();
+                }
+            }
+
+            @Override
+            protected void updateItem(PreviewLayout layout, boolean empty) {
+                super.updateItem(layout, empty);
+                // A recycled cell may be reassigned to a different row mid-rename; don't let a stale edit commit.
+                if (renaming) {
+                    cancelRename();
+                }
+                if (empty || layout == null) {
+                    setGraphic(null);
+                    return;
+                }
+                nameLabel.setText(layout.getDisplayName());
+                setGraphic(content);
+            }
+        };
+    }
+
+    private Button rowActionButton(IconTheme.JabRefIcons icon, String tooltip) {
+        Button button = new Button();
+        button.setGraphic(icon.getGraphicNode());
+        button.getStyleClass().addAll("icon-button", "narrow");
+        button.setTooltip(new Tooltip(tooltip));
+        button.setPrefWidth(15);
+        button.setPrefHeight(15);
+        button.setMinSize(15, 15);
+        return button;
     }
 }

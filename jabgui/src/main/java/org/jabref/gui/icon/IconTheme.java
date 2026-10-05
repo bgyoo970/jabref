@@ -12,10 +12,13 @@ import java.util.Optional;
 import java.util.Properties;
 
 import javafx.scene.Node;
+import javafx.scene.control.Dialog;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
+import javafx.stage.Stage;
 
 import org.jabref.architecture.AllowedToUseClassGetResource;
+import org.jabref.logic.os.OS;
 
 import org.jspecify.annotations.NullMarked;
 import org.kordamp.ikonli.Ikon;
@@ -42,6 +45,9 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignV;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.maran.svg.SVG;
+import tools.maran.svg.materialdesign.MDIInterface;
+import tools.maran.svg.materialdesign.MDITechnology;
 
 @AllowedToUseClassGetResource("JavaFX internally handles the passed URLs properly.")
 @NullMarked
@@ -78,12 +84,41 @@ public class IconTheme {
                        .toList();
     }
 
+    /// Applies the JabRef icon set to the given [Stage] on platforms that support window icons (non-macOS).
+    /// On macOS, stage icons are omitted so that macOS LaunchServices and dynamic Asset Catalogs natively manage the Dock icon.
+    public static void applyLogo(Stage stage) {
+        if (!OS.OS_X) {
+            stage.getIcons().addAll(getLogoSet());
+        }
+    }
+
+    /// Applies the specified icon to the given [Stage] on platforms that support window icons (non-macOS).
+    public static void applyLogo(Stage stage, Image image) {
+        if (!OS.OS_X) {
+            stage.getIcons().add(image);
+        }
+    }
+
+    /// Applies the default JabRef icon to the window of the given [Dialog] on platforms that support window icons (non-macOS).
+    public static void applyLogo(Dialog<?> dialog) {
+        applyLogo(dialog, getJabRefIcon());
+    }
+
+    /// Applies the specified icon to the window of the given [Dialog] on platforms that support window icons (non-macOS).
+    public static void applyLogo(Dialog<?> dialog, Image image) {
+        if (!OS.OS_X) {
+            if (dialog.getDialogPane().getScene() != null && dialog.getDialogPane().getScene().getWindow() instanceof Stage stage) {
+                stage.getIcons().add(image);
+            }
+        }
+    }
+
     public static Optional<JabRefIcon> findJabRefIcon(String iconCode) {
         String normalizedIconCode = iconCode.toUpperCase(Locale.ENGLISH);
 
         try {
             return Optional.of(JabRefIcons.valueOf(normalizedIconCode));
-        } catch (IllegalArgumentException ignored) {
+        } catch (IllegalArgumentException _) {
             return java.util.Arrays.stream(JabRefIcons.values())
                                    .filter(icon -> icon.matchesPersistedName(normalizedIconCode))
                                    .findFirst()
@@ -105,7 +140,7 @@ public class IconTheme {
         return Objects.requireNonNull(IconTheme.class.getResource(path), "Path must not be null for key " + name);
     }
 
-    /// Reads file mapping icon keys to image file names, prefixing each value with {@link #ICON_PATH_PREFIX}.
+    /// Reads file mapping icon keys to image file names, prefixing each value with [#ICON_PATH_PREFIX].
     ///
     /// @param url The URL to read information from.
     /// @return A Map containing all key-value pairs found.
@@ -218,6 +253,7 @@ public class IconTheme {
         PLAIN_TEXT_IMPORT_TODO(MaterialDesignC.CHECKBOX_BLANK_CIRCLE_OUTLINE),
         PLAIN_TEXT_IMPORT_DONE(MaterialDesignC.CHECKBOX_MARKED_CIRCLE_OUTLINE),
         DONATE(MaterialDesignG.GIFT),
+        CONTRIBUTE(MaterialDesignS.SOURCE_PULL),
         MOVE_TAB_ARROW(MaterialDesignA.ARROW_UP_BOLD),
         OPTIONAL(MaterialDesignL.LABEL_OUTLINE),
         REQUIRED(MaterialDesignL.LABEL),
@@ -337,8 +373,11 @@ public class IconTheme {
         RELATIVE_PATH(MaterialDesignF.FILE_TREE_OUTLINE),
         SHORTEN_DOI(MaterialDesignA.ARROW_COLLAPSE_HORIZONTAL),
 
-        // Example SVG-backed icon (a star, 24x24 viewport) sourced via the svgnode for testing purposes.
-        EXAMPLE_SVG_STAR("M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z");
+        // Library tab icons, rendered through svgnode; see [SvgIcon].
+        WELCOME(MDIInterface.HOME_OUTLINE),
+        BIBTEX_LIBRARY(MDITechnology.BOOK_OUTLINE),
+        BIBLATEX_LIBRARY(MDITechnology.NOTEBOOK_OUTLINE),
+        SHARED_DATABASE_LIBRARY(MDITechnology.DATABASE_OUTLINE);
 
         private final JabRefIcon icon;
 
@@ -350,8 +389,8 @@ public class IconTheme {
             icon = new IkonliIcon(color, icons);
         }
 
-        JabRefIcons(String svgPath) {
-            icon = new SvgIcon(name(), svgPath);
+        JabRefIcons(SVG svg) {
+            icon = new SvgIcon(name(), svg.path());
         }
 
         @Override

@@ -4,7 +4,6 @@ import java.util.List;
 
 import javafx.beans.property.ListProperty;
 import javafx.collections.ObservableList;
-import javafx.embed.swing.JFXPanel;
 import javafx.scene.control.ListView;
 import javafx.scene.control.MultipleSelectionModel;
 import javafx.scene.input.Dragboard;
@@ -14,6 +13,7 @@ import org.jabref.gui.DragAndDropDataFormats;
 import org.jabref.gui.StateManager;
 import org.jabref.gui.preview.PreviewPreferences;
 import org.jabref.gui.util.CustomLocalDragboard;
+import org.jabref.gui.util.JavaFxThreadingUtil;
 import org.jabref.logic.citationstyle.CitationStyle;
 import org.jabref.logic.journals.JournalAbbreviationRepository;
 import org.jabref.logic.layout.LayoutFormatterPreferences;
@@ -55,6 +55,8 @@ class PreviewTabViewModelTest {
     private final String TEXT2 = "<b>text2</b>";
     private final String TEXT3 = "<b>text3</b>";
     private final String TEST_FILEPATH = "test-filepath";
+    private final String TEST_STYLE_ID = "test-style-id";
+    private final String TEST_STYLE_CLASS = "test-style-class";
     private final String TEST_TITLE = "test-title";
     private final String TEST_SHORT_TITLE = "test-short-title";
     private final String TEST_SOURCE = "test-source";
@@ -72,12 +74,13 @@ class PreviewTabViewModelTest {
     }
 
     /*
-    constructing a ListView just to borrow its selection model needs the JavaFX toolkit initialized.
-    If not init, tests throw IllegalStateException: Toolkit not initialized
+    constructing a ListView to borrow its selection model
+    If not init, tests throw IllegalStateException: Toolkit not initialized.
+    Platform.startup throws IllegalStateException if the toolkit is already running in another test class
      */
     @BeforeAll
-    static void initToolkit() {
-        new JFXPanel();
+    static void initToolkit() throws InterruptedException {
+        JavaFxThreadingUtil.initializeJavaFxToolkit();
     }
 
     private PreviewTabViewModel viewModelWith(PreviewPreferences previewPreferences) {
@@ -132,13 +135,17 @@ class PreviewTabViewModelTest {
         PreviewPreferences previewPreferences = new PreviewPreferences(
                 // populate chosenListProperty
                 List.of(new CitationStylePreviewLayout(
-                        new CitationStyle("testfilepath",
-                                "test-title",
-                                "test-short-title",
+                        new CitationStyle(TEST_FILEPATH,
+                                TEST_STYLE_ID,
+                                TEST_STYLE_CLASS,
+                                TEST_TITLE,
+                                TEST_SHORT_TITLE,
                                 false,
                                 false,
                                 false,
-                                "test-source"),
+                                false,
+                                TEST_SOURCE,
+                                false),
                         bibEntryTypesManager)
                 ),
                 0,
@@ -156,7 +163,7 @@ class PreviewTabViewModelTest {
         assertInstanceOf(CitationStylePreviewLayout.class, chosenListProperty.getValue().getFirst());
         CitationStylePreviewLayout citationStylePreviewLayout1 = (CitationStylePreviewLayout) chosenListProperty.getValue().getFirst();
         CitationStyle citationStyle1 = citationStylePreviewLayout1.citationStyle();
-        assertEquals("testfilepath", citationStyle1.getPath());
+        assertEquals("test-filepath", citationStyle1.getPath());
         assertEquals("test-title", citationStyle1.getTitle());
         assertEquals("test-short-title", citationStyle1.getShortTitle());
         assertEquals("test-source", citationStyle1.getSource());
@@ -265,8 +272,8 @@ class PreviewTabViewModelTest {
         PreviewTabViewModel viewModel = setUpViewModel();
 
         // adds layout to CSL List
-        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_TITLE, TEST_SHORT_TITLE,
-                false, false, false, TEST_SOURCE);
+        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_STYLE_ID, TEST_STYLE_CLASS, TEST_TITLE, TEST_SHORT_TITLE,
+                false, false, false, false, TEST_SOURCE, false);
         CitationStylePreviewLayout cslLayout =
                 new CitationStylePreviewLayout(citationStyle, bibEntryTypesManager);
         viewModel.cslListProperty().add(cslLayout);
@@ -305,8 +312,8 @@ class PreviewTabViewModelTest {
         viewModel.chosenListProperty().add(textBasedPreviewLayout);
 
         // adds layout to CSL List
-        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_TITLE, TEST_SHORT_TITLE,
-                false, false, false, TEST_SOURCE);
+        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_STYLE_ID, TEST_STYLE_CLASS, TEST_TITLE, TEST_SHORT_TITLE,
+                false, false, false, false, TEST_SOURCE, false);
         CitationStylePreviewLayout cslLayout =
                 new CitationStylePreviewLayout(citationStyle, bibEntryTypesManager);
         viewModel.chosenListProperty().add(cslLayout);
@@ -339,8 +346,8 @@ class PreviewTabViewModelTest {
         PreviewTabViewModel viewModel = setUpViewModel();
 
         // adds layout to CSL List
-        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_TITLE, TEST_SHORT_TITLE,
-                false, false, false, TEST_SOURCE);
+        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_STYLE_ID, TEST_STYLE_CLASS, TEST_TITLE, TEST_SHORT_TITLE,
+                false, false, false, false, TEST_SOURCE, false);
         CitationStylePreviewLayout cslLayout =
                 new CitationStylePreviewLayout(citationStyle, bibEntryTypesManager);
         viewModel.cslListProperty().add(cslLayout);
@@ -393,8 +400,8 @@ class PreviewTabViewModelTest {
         PreviewTabViewModel viewModel = setUpViewModel();
 
         // adds layout to CSL List
-        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_TITLE, TEST_SHORT_TITLE,
-                false, false, false, TEST_SOURCE);
+        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_STYLE_ID, TEST_STYLE_CLASS, TEST_TITLE, TEST_SHORT_TITLE,
+                false, false, false, false, TEST_SOURCE, false);
         CitationStylePreviewLayout cslLayout =
                 new CitationStylePreviewLayout(citationStyle, bibEntryTypesManager);
         viewModel.cslListProperty().add(cslLayout);
@@ -468,8 +475,8 @@ class PreviewTabViewModelTest {
         PreviewTabViewModel viewModel = setUpViewModel();
 
         // adds layout to CSL List
-        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_TITLE, TEST_SHORT_TITLE,
-                false, false, false, TEST_SOURCE);
+        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_STYLE_ID, TEST_STYLE_CLASS, TEST_TITLE, TEST_SHORT_TITLE,
+                false, false, false, false, TEST_SOURCE, false);
         CitationStylePreviewLayout cslLayout =
                 new CitationStylePreviewLayout(citationStyle, bibEntryTypesManager);
         viewModel.cslListProperty().add(cslLayout);
@@ -484,6 +491,22 @@ class PreviewTabViewModelTest {
 
         assertTrue(viewModel.cslListProperty().contains(cslLayout));
         assertEquals(viewModel.availableSelectionModelProperty().getValue().getSelectedItem(), cslLayout);
+    }
+
+    @Test
+    void removeCustomizedStyleInputRemovesSelectedTextBasedStyle() {
+        PreviewTabViewModel viewModel = setUpViewModel();
+
+        // add new custom layout
+        TextBasedPreviewLayout textBasedPreviewLayout = TextBasedPreviewLayout.of(ID1, NAME1, TEXT1,
+                layoutFormatterPreferences, abbreviationRepository);
+        viewModel.customizedListProperty().add(textBasedPreviewLayout);
+        assertEquals(1, viewModel.customizedListProperty().size());
+
+        viewModel.removeCustomizedStyle(textBasedPreviewLayout);
+
+        assertEquals(0, viewModel.customizedListProperty().size());
+        assertFalse(viewModel.customizedListProperty().contains(textBasedPreviewLayout));
     }
 
     @Test
@@ -504,7 +527,7 @@ class PreviewTabViewModelTest {
     }
 
     @Test
-    void renameSelectedStyleFailsOnDuplicateName() {
+    void renameSelectedStyleFailsOnDuplicateNameInCustomizedList() {
         PreviewTabViewModel viewModel = setUpViewModel();
 
         // add new custom layout
@@ -523,18 +546,82 @@ class PreviewTabViewModelTest {
     }
 
     @Test
-    void renameSelectedStyleFailsOnBlank() {
+    void renameSelectedStyleFailsOnDuplicateNameInChosenList() {
         PreviewTabViewModel viewModel = setUpViewModel();
 
-        // add new custom layout
+        TextBasedPreviewLayout chosenLayout = TextBasedPreviewLayout.of(ID1, NAME1, TEXT1,
+                layoutFormatterPreferences, abbreviationRepository);
+        viewModel.chosenListProperty().add(chosenLayout);
+
+        TextBasedPreviewLayout layoutBeingRenamed = TextBasedPreviewLayout.of(ID2, NAME2, TEXT2,
+                layoutFormatterPreferences, abbreviationRepository);
+        viewModel.customizedListProperty().add(layoutBeingRenamed);
+        viewModel.setPreviewLayout(layoutBeingRenamed);
+
+        viewModel.renameSelectedStyle(NAME1);
+
+        assertEquals(ID2, layoutBeingRenamed.getId());
+        assertEquals(NAME2, layoutBeingRenamed.getDisplayName());
+        assertEquals(TEXT2, layoutBeingRenamed.getText());
+    }
+
+    @Test
+    void renameSelectedStyleFailsOnDuplicateNameInCslList() {
+        PreviewTabViewModel viewModel = setUpViewModel();
+
+        // adds layout to CSL List
+        CitationStyle citationStyle = new CitationStyle(TEST_FILEPATH, TEST_STYLE_ID, TEST_STYLE_CLASS, TEST_TITLE, TEST_SHORT_TITLE,
+                false, false, false, false, TEST_SOURCE, false);
+        CitationStylePreviewLayout cslLayout =
+                new CitationStylePreviewLayout(citationStyle, bibEntryTypesManager);
+        viewModel.cslListProperty().add(cslLayout);
+        assertTrue(viewModel.cslListProperty().contains(cslLayout));
+
+        TextBasedPreviewLayout layoutBeingRenamed = TextBasedPreviewLayout.of(ID2, NAME2, TEXT2,
+                layoutFormatterPreferences, abbreviationRepository);
+        viewModel.customizedListProperty().add(layoutBeingRenamed);
+        viewModel.setPreviewLayout(layoutBeingRenamed);
+
+        viewModel.renameSelectedStyle(TEST_TITLE);
+
+        assertEquals(ID2, layoutBeingRenamed.getId());
+        assertEquals(NAME2, layoutBeingRenamed.getDisplayName());
+        assertEquals(TEXT2, layoutBeingRenamed.getText());
+    }
+
+    @Test
+    void renameSelectedStyleFailsOnBlankLayoutNameAndTextFiledUnchanged() {
+        PreviewTabViewModel viewModel = setUpViewModel();
+
         TextBasedPreviewLayout textBasedPreviewLayout = TextBasedPreviewLayout.of(ID1, NAME1, TEXT1,
                 layoutFormatterPreferences, abbreviationRepository);
         viewModel.customizedListProperty().add(textBasedPreviewLayout);
         viewModel.setPreviewLayout(textBasedPreviewLayout);
+        viewModel.styleNameProperty().set(NAME1);
 
         viewModel.renameSelectedStyle("   ");
         assertEquals(NAME1, textBasedPreviewLayout.getDisplayName());
         viewModel.renameSelectedStyle("");
+        assertEquals(NAME1, viewModel.styleNameProperty().getValue());
+        assertEquals(ID1, textBasedPreviewLayout.getId());
+        assertEquals(NAME1, textBasedPreviewLayout.getDisplayName());
+        assertEquals(TEXT1, textBasedPreviewLayout.getText());
+    }
+
+    @Test
+    void renameSelectedStyleFailsOnBlankLayoutNameAndTextFiledUnchanged222() {
+        PreviewTabViewModel viewModel = setUpViewModel();
+
+        TextBasedPreviewLayout textBasedPreviewLayout = TextBasedPreviewLayout.of(ID1, NAME1, TEXT1,
+                layoutFormatterPreferences, abbreviationRepository);
+        viewModel.customizedListProperty().add(textBasedPreviewLayout);
+        viewModel.setPreviewLayout(textBasedPreviewLayout);
+        viewModel.styleNameProperty().set(NAME1);
+
+        viewModel.renameSelectedStyle("   ");
+        assertEquals(NAME1, textBasedPreviewLayout.getDisplayName());
+        viewModel.renameSelectedStyle("");
+        assertEquals(NAME1, viewModel.styleNameProperty().getValue());
         assertEquals(ID1, textBasedPreviewLayout.getId());
         assertEquals(NAME1, textBasedPreviewLayout.getDisplayName());
         assertEquals(TEXT1, textBasedPreviewLayout.getText());

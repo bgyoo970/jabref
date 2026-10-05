@@ -3,7 +3,6 @@ package org.jabref.gui.preview;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.stream.Stream;
 
 import javafx.beans.property.BooleanProperty;
@@ -51,7 +50,7 @@ public class PreviewPreferences {
         this(
                 List.of(),  // Layout cycle - empty by default, see JabRefPreferences::getPreviewPreferencesFromBackingStore
                 0,          // Layout cycle position
-                List.of(new CustomizedPreviewStyle(UUID.randomUUID().toString(), TextBasedPreviewLayout.NAME, TextBasedPreviewLayout.DEFAULT)),   // default custom style
+                List.of(new CustomizedPreviewStyle(TextBasedPreviewLayout.DEFAULT_DISPLAY_NAME, TextBasedPreviewLayout.DEFAULT)),   // default custom style
                 false,      // Show preview as an extra tab
                 false,      // Show the preview entry table tooltip
                 List.of(),  // BST-Paths
@@ -68,7 +67,8 @@ public class PreviewPreferences {
                                                           JournalAbbreviationRepository abbreviationRepository,
                                                           BibEntryTypesManager entryTypesManager) {
         PreviewPreferences defaults = getDefault();
-        defaults.getLayoutCycle().addAll(Stream.of(TextBasedPreviewLayout.NAME, CSLStyleLoader.DEFAULT_STYLE).map(layout ->
+        String defaultCustomizedStyleId = defaults.getCustomizedPreviewStyles().getFirst().id();
+        defaults.getLayoutCycle().addAll(Stream.of(defaultCustomizedStyleId, CSLStyleLoader.DEFAULT_STYLE).map(layout ->
                                                        PreviewLayout.of(
                                                                layout,
                                                                defaults.getCustomizedPreviewStyles(),

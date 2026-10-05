@@ -13,6 +13,7 @@ import org.jabref.gui.DialogService;
 import org.jabref.gui.StateManager;
 import org.jabref.gui.preferences.GuiPreferences;
 import org.jabref.logic.FilePreferences;
+import org.jabref.model.database.BibDatabase;
 import org.jabref.model.database.BibDatabaseContext;
 import org.jabref.model.entry.BibEntry;
 import org.jabref.model.entry.BibEntryPreferences;
@@ -49,7 +50,7 @@ class GroupDialogViewModelTest {
     @BeforeEach
     void setUp(@TempDir Path temporaryFolder) {
         this.temporaryFolder = temporaryFolder;
-        bibDatabaseContext = new BibDatabaseContext();
+        bibDatabaseContext = new BibDatabaseContext(new BibDatabase(), metaData);
 
         when(group.getName()).thenReturn("Group");
 
@@ -60,8 +61,6 @@ class GroupDialogViewModelTest {
         when(preferences.getGroupsPreferences()).thenReturn(groupsPreferences);
         when(groupsPreferences.getDefaultHierarchicalContext()).thenReturn(GroupHierarchyType.INDEPENDENT);
         when(stateManager.getSelectedEntries()).thenReturn(FXCollections.emptyObservableList());
-
-        bibDatabaseContext.setMetaData(metaData);
 
         viewModel = new GroupDialogViewModel(dialogService, bibDatabaseContext, preferences, group, null, new DummyFileUpdateMonitor(), stateManager);
     }
@@ -74,14 +73,14 @@ class GroupDialogViewModelTest {
         when(metaData.getLatexFileDirectory(any(String.class))).thenReturn(Optional.of(temporaryFolder));
 
         viewModel.texGroupFilePathProperty().setValue(anAuxFile.toString());
-        assertTrue(viewModel.texGroupFilePathValidatonStatus().isValid());
+        assertTrue(viewModel.texGroupFilePathValidationStatus().isValid());
     }
 
     @Test
     void validateNonExistingAbsolutePath() {
         Path notAnAuxFile = temporaryFolder.resolve("notanauxfile.aux").toAbsolutePath();
         viewModel.texGroupFilePathProperty().setValue(notAnAuxFile.toString());
-        assertFalse(viewModel.texGroupFilePathValidatonStatus().isValid());
+        assertFalse(viewModel.texGroupFilePathValidationStatus().isValid());
     }
 
     @Test
@@ -93,7 +92,7 @@ class GroupDialogViewModelTest {
         when(metaData.getLatexFileDirectory(any(String.class))).thenReturn(Optional.of(temporaryFolder));
 
         viewModel.texGroupFilePathProperty().setValue(anAuxFile.toString());
-        assertTrue(viewModel.texGroupFilePathValidatonStatus().isValid());
+        assertTrue(viewModel.texGroupFilePathValidationStatus().isValid());
     }
 
     @Test

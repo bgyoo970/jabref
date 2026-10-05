@@ -1,15 +1,17 @@
 package org.jabref.gui.preferences;
 
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SequencedMap;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -42,7 +44,9 @@ import org.jabref.gui.newentry.NewEntryPreferences;
 import org.jabref.gui.preview.PreviewPreferences;
 import org.jabref.gui.sidepane.SidePaneType;
 import org.jabref.gui.specialfields.SpecialFieldsPreferences;
-import org.jabref.gui.theme.Theme;
+import org.jabref.gui.theme.StyleSheet;
+import org.jabref.gui.theme.ThemeColorScheme;
+import org.jabref.gui.theme.ThemePreset;
 import org.jabref.gui.welcome.DonationPreferences;
 import org.jabref.logic.citationstyle.CSLStyleLoader;
 import org.jabref.logic.exporter.BibDatabaseWriter;
@@ -72,9 +76,13 @@ import org.jabref.model.metadata.SaveOrder;
 import org.jabref.model.metadata.SelfContainedSaveOrder;
 
 import com.airhacks.afterburner.injection.Injector;
+import com.google.common.annotations.VisibleForTesting;
 import com.tobiasdiez.easybind.EasyBind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPreferences {
 
@@ -86,6 +94,7 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
     public static final String PREVIEW_STYLE_CUSTOMIZED_ID = "previewStyleCustomizedId";
     public static final String PREVIEW_STYLE_CUSTOMIZED_NAME = "previewStyleCustomizedName";
     public static final String PREVIEW_STYLE_CUSTOMIZED_TEXT = "previewStyleCustomizedText";
+    public static final String PREVIEW_STYLE_CUSTOMIZED_MIGRATED = "previewStyleCustomizedMigrated";
     public static final String PREVIEW_CYCLE_POS = "cyclePreviewPos";
     public static final String PREVIEW_CYCLE = "cyclePreview";
     public static final String PREVIEW_AS_TAB = "previewAsTab";
@@ -97,6 +106,7 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
     // region keybindings - public because needed for pref migration
     public static final String BIND_NAMES = "bindNames";
     public static final String BINDINGS = "bindings";
+    public static final String MACOS_KEY_BINDING_DEFAULTS_MIGRATED = "macOSKeyBindingDefaultsMigrated";
     // endregion
 
     // region column names
@@ -114,11 +124,14 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
 
     private static final Logger LOGGER = LoggerFactory.getLogger(JabRefGuiPreferences.class);
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     // region WorkspacePreferences
     private static final String OVERRIDE_DEFAULT_FONT_SIZE = "overrideDefaultFontSize";
     private static final String MAIN_FONT_SIZE = "mainFontSize";
-    private static final String THEME = "fxTheme";
-    private static final String THEME_SYNC_OS = "themeSyncOs";
+    private static final String THEME = "theme";
+    private static final String THEME_COLOR_SCHEME = "themeColorScheme";
+    private static final String THEME_CUSTOM = "themeCustom";
     private static final String OPEN_LAST_EDITED = "openLastEdited";
     private static final String SHOW_ADVANCED_HINTS = "showAdvancedHints";
     private static final String CONFIRM_DELETE = "confirmDelete";
@@ -235,6 +248,11 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
     // backing store and only serves as the tabModels binding's reporting key in getPreferences()/getDefaults()
     // (see bindMap/PUSH_APPLICATIONS_PATHS_KEY for the same pattern).
     private static final String ENTRY_EDITOR_TABS = "entryEditorTabs";
+    // All custom tabs in one JSON object, `{"tab name": ["field pattern", ...], ...}`, in display order.
+    // The numbered-series format of versions up to v6.0-alpha.6 is converted to this key by
+    // org.jabref.migrations.PreferencesMigrations#upgradeEntryEditorCustomTabs (key name duplicated there).
+    private static final String ENTRY_EDITOR_CUSTOM_TABS = "entryEditorCustomTabs";
+    private static final String ENTRY_EDITOR_TAB_ORDER = "entryEditorTabOrder";
     private static final String AUTO_OPEN_FORM = "autoOpenForm";
     private static final String SHOW_ALL_FIELDS_TAB = "showAllFieldsTab";
     private static final String SHOW_RECOMMENDATIONS = "showRecommendations";
@@ -404,8 +422,9 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
         return entryEditorPreferences;
     }
 
-    /// The single source of truth for the entry editor's tab list: the user-configured field-set tabs,
-    /// followed by every static (built-in) tab's visibility flag, in [EntryEditorTabModel.BuiltIn] order.
+    /// The single source of truth for the entry editor's tab list: every built-in tab's visibility flag
+    /// plus the user-defined custom tabs, ordered by [#ENTRY_EDITOR_TAB_ORDER] (falling back to
+    /// [EntryEditorTabModel.BuiltIn] order followed by the custom tabs).
     private List<EntryEditorTabModel> getEntryEditorTabs(EntryEditorPreferences defaults) {
         List<EntryEditorTabModel> tabModels = new ArrayList<>();
 
@@ -435,10 +454,117 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
                         getBoolean(SHOW_FULLTEXT_SEARCH_TAB, defaults.isTabVisible(EntryEditorTabModel.BuiltIn.FULLTEXT_SEARCH_RESULTS)))
         ));
 
-        return tabModels;
+        String storedCustomTabs = get(ENTRY_EDITOR_CUSTOM_TABS, "");
+        if (StringUtil.isNotBlank(storedCustomTabs)) {
+            try {
+                tabModels.addAll(parseCustomTabs(storedCustomTabs));
+            } catch (JacksonException e) {
+                LOGGER.warn("Could not read the custom entry editor tabs, dropping them", e);
+            }
+        }
+
+        return applyStoredTabOrder(tabModels, getStringList(ENTRY_EDITOR_TAB_ORDER));
+    }
+
+    /// Parses [#ENTRY_EDITOR_CUSTOM_TABS]: a JSON object mapping tab name to a pattern list (JSON
+    /// objects keep insertion order, so the tabs' display order survives the round-trip). A list item
+    /// is either a plain pattern string or `{"pattern": ..., "extract": true}` for a pattern whose
+    /// fields are extracted from the Main tab; plain strings keep stores written before the extract
+    /// flag existed readable.
+    @VisibleForTesting
+    static List<EntryEditorTabModel.CustomizedFieldsTab> parseCustomTabs(String storedCustomTabs) {
+        List<EntryEditorTabModel.CustomizedFieldsTab> tabs = new ArrayList<>();
+        JsonNode root = OBJECT_MAPPER.readTree(storedCustomTabs);
+        for (Map.Entry<String, JsonNode> tabEntry : root.properties()) {
+            List<String> fieldPatterns = new ArrayList<>();
+            Set<String> extractedPatterns = new HashSet<>();
+            for (JsonNode item : tabEntry.getValue().values()) {
+                if (item.isObject()) {
+                    String pattern = item.path("pattern").asString("");
+                    if (!pattern.isEmpty()) {
+                        fieldPatterns.add(pattern);
+                        if (item.path("extract").asBoolean(false)) {
+                            extractedPatterns.add(pattern);
+                        }
+                    }
+                } else {
+                    fieldPatterns.add(item.asString());
+                }
+            }
+            tabs.add(new EntryEditorTabModel.CustomizedFieldsTab(tabEntry.getKey(), fieldPatterns, extractedPatterns));
+        }
+        return tabs;
+    }
+
+    /// Reorders `tabModels` to match `storedOrder` (see [#ENTRY_EDITOR_TAB_ORDER]). The Preview tab stays
+    /// first; tabs unknown to the stored order (e.g. built-ins introduced after the order was written) keep
+    /// their default relative position at the end. Tabs sharing an ID (duplicate custom-tab names in
+    /// persisted data — the preferences UI prevents them, but older versions and hand-edited stores may
+    /// not) are kept, consumed one per matching stored-order entry.
+    @VisibleForTesting
+    static List<EntryEditorTabModel> applyStoredTabOrder(List<EntryEditorTabModel> tabModels, List<String> storedOrder) {
+        if (storedOrder.isEmpty()) {
+            return tabModels;
+        }
+
+        SequencedMap<String, ArrayDeque<EntryEditorTabModel>> remaining = new LinkedHashMap<>();
+        List<EntryEditorTabModel> ordered = new ArrayList<>();
+        for (EntryEditorTabModel model : tabModels) {
+            if (model.isPreview()) {
+                ordered.add(model);
+            } else {
+                remaining.computeIfAbsent(tabOrderId(model), _ -> new ArrayDeque<>()).add(model);
+            }
+        }
+        for (String id : storedOrder) {
+            ArrayDeque<EntryEditorTabModel> models = remaining.get(id);
+            if (models != null) {
+                ordered.add(models.removeFirst());
+                if (models.isEmpty()) {
+                    remaining.remove(id);
+                }
+            }
+        }
+        remaining.values().forEach(ordered::addAll);
+        return ordered;
+    }
+
+    /// Stable identifier of a tab in [#ENTRY_EDITOR_TAB_ORDER]. Custom tabs are prefixed so a custom tab
+    /// named like a [EntryEditorTabModel.BuiltIn] constant cannot collide with it.
+    private static String tabOrderId(EntryEditorTabModel model) {
+        return switch (model) {
+            case EntryEditorTabModel.BuiltInTab(
+                    EntryEditorTabModel.BuiltIn type,
+                    boolean _
+            ) ->
+                    type.name();
+            case EntryEditorTabModel.CustomizedFieldsTab customTab ->
+                    "custom:" + customTab.name();
+        };
     }
 
     private void storeTabConfigs(List<EntryEditorTabModel> configs) {
+        List<EntryEditorTabModel.CustomizedFieldsTab> customTabs = configs.stream()
+                                                                          .filter(EntryEditorTabModel.CustomizedFieldsTab.class::isInstance)
+                                                                          .map(EntryEditorTabModel.CustomizedFieldsTab.class::cast)
+                                                                          .toList();
+        // Keyed by name, so a duplicate tab name cannot exist in the stored format (the preferences UI
+        // prevents creating duplicates; legacy duplicates merge here, last one wins). Non-extracted
+        // patterns stay plain strings (see parseCustomTabs), so the store only grows where the new
+        // flag is actually used.
+        SequencedMap<String, List<Object>> customTabsByName = new LinkedHashMap<>();
+        customTabs.forEach(tab -> customTabsByName.put(tab.name(), tab.fieldPatterns().stream()
+                                                                      .<Object>map(pattern -> tab.extractedFieldPatterns().contains(pattern)
+                                                                                              ? Map.of("pattern", pattern, "extract", true)
+                                                                                              : pattern)
+                                                                      .toList()));
+        put(ENTRY_EDITOR_CUSTOM_TABS, OBJECT_MAPPER.writeValueAsString(customTabsByName));
+
+        putStringList(ENTRY_EDITOR_TAB_ORDER, configs.stream()
+                                                     .filter(config -> !config.isPreview())
+                                                     .map(JabRefGuiPreferences::tabOrderId)
+                                                     .toList());
+
         for (EntryEditorTabModel config : configs) {
             if (config instanceof EntryEditorTabModel.BuiltInTab(
                     EntryEditorTabModel.BuiltIn type,
@@ -581,8 +707,9 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
                 getLanguage(),
                 getBoolean(OVERRIDE_DEFAULT_FONT_SIZE, defaultValues.shouldOverrideDefaultFontSize()),
                 getInt(MAIN_FONT_SIZE, defaultValues.getMainFontSize()),
-                new Theme(get(THEME, Theme.SYSTEM)),
-                getBoolean(THEME_SYNC_OS, defaultValues.shouldThemeSyncOs()),
+                ThemePreset.of(get(THEME, defaultValues.getTheme().getPreferenceName())),
+                ThemeColorScheme.of(get(THEME_COLOR_SCHEME, defaultValues.getColorScheme().getPreferenceName())),
+                asStyleSheet(get(THEME_CUSTOM, "")),
                 getBoolean(OPEN_LAST_EDITED, defaultValues.shouldOpenLastEdited()),
                 getBoolean(SHOW_ADVANCED_HINTS, defaultValues.shouldShowAdvancedHints()),
                 getBoolean(CONFIRM_DELETE, defaultValues.shouldConfirmDelete()),
@@ -601,8 +728,13 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
         bindBoolean(workspacePreferences.shouldOverrideDefaultFontSizeProperty(), OVERRIDE_DEFAULT_FONT_SIZE, defaultValues.shouldOverrideDefaultFontSize());
         bindInt(workspacePreferences.mainFontSizeProperty(), MAIN_FONT_SIZE, defaultValues.getMainFontSize());
         bindObject(workspacePreferences.themeProperty(), THEME, defaultValues.getTheme(),
-                Theme::getName, Theme::new);
-        bindBoolean(workspacePreferences.themeSyncOsProperty(), THEME_SYNC_OS, defaultValues.shouldThemeSyncOs());
+                ThemePreset::getPreferenceName, ThemePreset::of);
+        bindObject(workspacePreferences.colorSchemeProperty(), THEME_COLOR_SCHEME, defaultValues.getColorScheme(),
+                ThemeColorScheme::getPreferenceName, ThemeColorScheme::of);
+        bindCustom(workspacePreferences.customThemeProperty(), THEME_CUSTOM, defaultValues.getCustomTheme(),
+                (_, _, newValue) -> put(THEME_CUSTOM, newValue.map(StyleSheet::getName).orElse("")),
+                () -> workspacePreferences.setCustomTheme(Optional.ofNullable(asStyleSheet(get(THEME_CUSTOM, "")))),
+                () -> workspacePreferences.setCustomTheme(defaultValues.getCustomTheme()));
         bindBoolean(workspacePreferences.openLastEditedProperty(), OPEN_LAST_EDITED, defaultValues.shouldOpenLastEdited());
         bindBoolean(workspacePreferences.showAdvancedHintsProperty(), SHOW_ADVANCED_HINTS, defaultValues.shouldShowAdvancedHints());
         bindBoolean(workspacePreferences.confirmDeleteProperty(), CONFIRM_DELETE, defaultValues.shouldConfirmDelete());
@@ -612,6 +744,13 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
                 () -> getStringList(SELECTED_SLR_CATALOGS));
 
         return workspacePreferences;
+    }
+
+    private StyleSheet asStyleSheet(String path) {
+        if (StringUtil.isBlank(path)) {
+            return null;
+        }
+        return StyleSheet.create(path).orElse(null);
     }
     // endregion
 
@@ -908,9 +1047,15 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
     private List<PreviewLayout> getPreviewLayouts(List<String> cycle, List<CustomizedPreviewStyle> customizedLayouts) {
         // For backwards compatibility always add at least the default preview to the cycle
         if (cycle.isEmpty()) {
-            cycle.addAll(List.of(
-                    customizedLayouts.isEmpty() ? TextBasedPreviewLayout.NAME : customizedLayouts.getFirst().id(),
-                    CSLStyleLoader.DEFAULT_STYLE));
+            if (customizedLayouts.isEmpty()) {
+                CustomizedPreviewStyle defaultStyle = new CustomizedPreviewStyle(TextBasedPreviewLayout.NAME,
+                        TextBasedPreviewLayout.DEFAULT_DISPLAY_NAME, TextBasedPreviewLayout.DEFAULT);
+                customizedLayouts.add(defaultStyle);
+                cycle.add(defaultStyle.id());
+            } else {
+                cycle.add(customizedLayouts.getFirst().id());
+            }
+            cycle.add(CSLStyleLoader.DEFAULT_STYLE);
         }
 
         return cycle.stream()
@@ -945,7 +1090,10 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
     }
 
     private List<CustomizedPreviewStyle> getCustomizedPreviewStyle(List<CustomizedPreviewStyle> defaults) {
-        if (!hasKey(PREVIEW_STYLE_CUSTOMIZED_ID + "0")) {
+        // hasKey() can't distinguish "never migrated" from "empty customized styles". storeCustomizedPreviewStyle purges the numbered series when the list is emptied.
+        // The PREVIEW_STYLE_CUSTOMIZED_MIGRATED key is written once by migrateLegacyCustomLayout and is never purged, so it survives
+        // an emptied list and prevents the legacy PREVIEW_STYLE key from being re-migrated on a later startup.
+        if (!hasKey(PREVIEW_STYLE_CUSTOMIZED_ID + "0") && !getBoolean(PREVIEW_STYLE_CUSTOMIZED_MIGRATED, false)) {
             return migrateLegacyCustomLayout(defaults);
         }
         // reads a numbered series independently, one key prefix at a time
@@ -953,7 +1101,7 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
         List<String> ids = getSeries(PREVIEW_STYLE_CUSTOMIZED_ID);
         List<String> names = getSeries(PREVIEW_STYLE_CUSTOMIZED_NAME);
         List<String> texts = getSeries(PREVIEW_STYLE_CUSTOMIZED_TEXT);
-        // min is precautionary, helps to not be indexOutOfBounds in the case storing these keys failed midway
+        // min is precautionary, helps to not be indexOutOfBounds in the case storing these keys failed mid run
         int count = Math.min(ids.size(), Math.min(names.size(), texts.size()));
 
         List<CustomizedPreviewStyle> result = new ArrayList<>();
@@ -986,14 +1134,16 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
         }
     }
 
-    // Intended to migrate the old PREVIEW_STYLE value into CustomizedPreviewStyle list
-    // Then stores the new key immediately so this only runs once
+    // Intended to migrate the old PREVIEW_STYLE value into CustomizedPreviewStyle list. Then stores the new key immediately so this only runs once
     private List<CustomizedPreviewStyle> migrateLegacyCustomLayout(List<CustomizedPreviewStyle> defaults) {
+        putBoolean(PREVIEW_STYLE_CUSTOMIZED_MIGRATED, true);    // key is marked so we don't attempt to migrate legacy layout again (i.e. if the list is empty again)
         if (hasKey(PREVIEW_STYLE)) {
             String legacyText = get(PREVIEW_STYLE, "").replace("__NEWLINE__", "\n");
             if (StringUtil.isNotBlank(legacyText)) {
-                CustomizedPreviewStyle migrated = new CustomizedPreviewStyle(
-                        UUID.randomUUID().toString(), TextBasedPreviewLayout.NAME, legacyText);
+                // Legacy PREVIEW_CYCLE reference TextBasedPreviewLayout.NAME (reference PreferencesMigrations.upgradeBuiltinPreviewName)
+                // set migrated id to this default value, else cycle inherited from before this change silently drops the customized layout on load
+                CustomizedPreviewStyle migrated = new CustomizedPreviewStyle(TextBasedPreviewLayout.NAME,
+                        TextBasedPreviewLayout.DEFAULT_DISPLAY_NAME, legacyText);
                 storeCustomizedPreviewStyle(List.of(migrated));
                 return List.of(migrated);
             }
@@ -1151,7 +1301,7 @@ public class JabRefGuiPreferences extends JabRefCliPreferences implements GuiPre
                     // ASCENDING on unknown/corrupted values so recovery operations (reset/import) do not fail.
                     try {
                         return TableColumn.SortType.valueOf(sortType);
-                    } catch (IllegalArgumentException e) {
+                    } catch (IllegalArgumentException _) {
                         return TableColumn.SortType.ASCENDING;
                     }
                 }).toList();
